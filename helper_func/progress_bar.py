@@ -1,63 +1,56 @@
-
 import time
 import math
 
 async def progress_bar(current, total, text, message, start):
-
     now = time.time()
-    diff = now-start
-    if round(diff % 10) == 0 or current == total:
-        percentage = current*100/total
-        speed = current/diff
-        elapsed_time = round(diff)*1000
-        eta = round((total-current)/speed)*1000
-        ett = eta + elapsed_time
+    diff = now - start
 
-        elapsed_time = TimeFormatter(elapsed_time)
-        ett = TimeFormatter(ett)
+    # Update only every 5 seconds or at completion
+    if (round(diff) % 5 == 0) or (current == total):
+        percentage = (current / total) * 100
+        speed = current / diff if diff > 0 else 0
+        elapsed_ms = int(diff * 1000)
+        eta_ms = int(((total - current) / speed) * 1000) if speed > 0 else 0
+        total_eta = eta_ms + elapsed_ms
 
-        progress = "[{0}{1}] \n\n🔹Progress: {2}%\n".format(
-            ''.join(["◼️" for i in range(math.floor(percentage / 5))]),
-            ''.join(["◻️" for i in range(20 - math.floor(percentage / 5))]),
-            round(percentage, 2))
+        bar_filled = math.floor(percentage / 5)
+        bar_empty = 20 - bar_filled
+        bar = "█" * bar_filled + "░" * bar_empty
 
-        tmp = progress + "{0} of {1}\n\n️🔹Speed: {2}/s\n\n🔹ETA: {3}\n".format(
-            humanbytes(current),
-            humanbytes(total),
-            humanbytes(speed),
-            # elapsed_time if elapsed_time != '' else "0 s",
-            ett if ett != '' else "0 s"
+        formatted = (
+            f"`[{bar}]`\n\n"
+            f"**Progress:** {round(percentage, 2)}%\n"
+            f"**Done:** {humanbytes(current)} of {humanbytes(total)}\n"
+            f"**Speed:** {humanbytes(speed)}/s\n"
+            f"**Elapsed:** {TimeFormatter(elapsed_ms)}\n"
+            f"**ETA:** {TimeFormatter(total_eta)}"
         )
 
-        try :
-            await message.edit(
-                text = '{}.\n{}'.format(text, tmp)
-            )
+        try:
+            await message.edit(text=f"**{text}**\n\n{formatted}")
         except:
             pass
 
 def humanbytes(size):
-    # https://stackoverflow.com/a/49361727/4723940
-    # 2**10 = 1024
-    if not size:
-        return ""
+    if size is None:
+        return "0 B"
     power = 2**10
     n = 0
-    Dic_powerN = {0: ' ', 1: 'Ki', 2: 'Mi', 3: 'Gi', 4: 'Ti'}
-    while size > power:
+    Dic_powerN = {0: '', 1: 'Ki', 2: 'Mi', 3: 'Gi', 4: 'Ti'}
+    while size >= power and n < 4:
         size /= power
         n += 1
-    return str(round(size, 2)) + " " + Dic_powerN[n] + 'B'
+    return f"{round(size, 2)} {Dic_powerN[n]}B"
 
-
-def TimeFormatter(milliseconds: int) -> str:
-    seconds, milliseconds = divmod(int(milliseconds), 1000)
+def TimeFormatter(ms: int) -> str:
+    seconds, ms = divmod(ms, 1000)
     minutes, seconds = divmod(seconds, 60)
     hours, minutes = divmod(minutes, 60)
     days, hours = divmod(hours, 24)
-    tmp = ((str(days) + "d, ") if days else "") + \
-        ((str(hours) + "h, ") if hours else "") + \
-        ((str(minutes) + "m, ") if minutes else "") + \
-        ((str(seconds) + "s, ") if seconds else "") + \
-        ((str(milliseconds) + "ms, ") if milliseconds else "")
-    return tmp[:-2]
+    parts = []
+    if days: parts.append(f"{days}d")
+    if hours: parts.append(f"{hours}h")
+    if minutes: parts.append(f"{minutes}m")
+    if seconds: parts.append(f"{seconds}s")
+    if ms: parts.append(f"{ms}ms")
+    return ", ".join(parts) if parts else "0s"
