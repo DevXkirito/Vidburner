@@ -253,4 +253,3 @@ async def save_url(bot, message, cb=False):
         await sent_msg.edit(text)
     except:
         pass
-
