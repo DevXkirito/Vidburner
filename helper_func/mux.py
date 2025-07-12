@@ -1,13 +1,14 @@
 import os
-import time
 import re
+import time
+import random
 import asyncio
 from config import Config
-from pyrogram.types import InputMediaPhoto
 from helper_func.progress_bar import safe_edit_message
+from pyrogram.types import InputMediaPhoto
 
 
-# --- Utilities ---
+# ---------------------- Utilities ----------------------
 
 def parse_progress(line):
     progress_pattern = re.compile(r'(frame|fps|size|time|bitrate|speed)\s*=\s*(\S+)')
@@ -33,7 +34,7 @@ async def read_stderr(start, msg, process):
         progress = parse_progress(line)
         if progress:
             now = time.time()
-            if now - last_edit_time >= 5:  # Throttle updates
+            if now - last_edit_time >= 5:
                 text = '📊 Muxing Progress\n'
                 text += f"📦 Size: {progress['size']}\n"
                 text += f"⏱️ Time: {progress['time']}\n"
@@ -45,51 +46,46 @@ async def read_stderr(start, msg, process):
                     pass
 
 
-async def send_screenshots(client, chat_id, video_path):
-    duration_cmd = [
-        "ffprobe", "-v", "error",
-        "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1",
-        video_path
-    ]
-    proc = await asyncio.create_subprocess_exec(
-        *duration_cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
-    )
-    stdout, _ = await proc.communicate()
-    try:
-        duration = float(stdout.decode().strip())
-    except ValueError:
-        duration = 0
-
-    if duration == 0:
-        return
-
-    interval = duration // 6
+async def generate_screenshots(video_path, num_screenshots=5):
+    """Generate multiple screenshots at 10s intervals."""
     screenshot_paths = []
 
-    for i in range(1, 6):
-        ss_time = int(i * interval)
-        output_path = f"{video_path}_ss{i}.jpg"
-        cmd = [
-            "ffmpeg", "-ss", str(ss_time),
-            "-i", video_path,
-            "-frames:v", "1",
-            "-q:v", "2",
-            "-y", output_path
+    for i in range(num_screenshots):
+        timestamp = i * 10
+        screenshot_filename = f"{os.path.splitext(os.path.basename(video_path))[0]}_screenshot_{i+1}.jpg"
+        screenshot_path = os.path.join(Config.DOWNLOAD_DIR, screenshot_filename)
+
+        command = [
+            'ffmpeg', '-hide_banner', '-ss', str(timestamp), '-i', video_path,
+            '-frames:v', '1', '-q:v', '2', '-y', screenshot_path
         ]
-        await asyncio.create_subprocess_exec(*cmd)
-        screenshot_paths.append(output_path)
 
-    media_group = [InputMediaPhoto(media=path) for path in screenshot_paths]
-    await client.send_media_group(chat_id, media=media_group)
+        process = await asyncio.create_subprocess_exec(
+            *command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
+
+        if process.returncode == 0 and os.path.exists(screenshot_path):
+            screenshot_paths.append(screenshot_path)
+        else:
+            print(f"⚠️ Screenshot {i+1} failed: {stderr.decode()}")
+
+    return screenshot_paths
 
 
-# --- Mux Functions ---
+async def send_screenshots(msg, screenshots):
+    """Send screenshots as individual photos."""
+    if screenshots:
+        await msg.reply_text("📸 **Screenshots Generated:**")
+        for screenshot in screenshots:
+            await msg.reply_photo(screenshot)
+
+
+# ---------------------- Mux Functions ----------------------
 
 async def softmux_vid(vid_filename, sub_filename, msg):
     start = time.time()
+
     vid = os.path.join(Config.DOWNLOAD_DIR, vid_filename)
     sub = os.path.join(Config.DOWNLOAD_DIR, sub_filename)
     out_file = '.'.join(vid_filename.split('.')[:-1])
@@ -112,7 +108,7 @@ async def softmux_vid(vid_filename, sub_filename, msg):
     process = await asyncio.create_subprocess_exec(
         *command,
         stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE
     )
 
     await asyncio.wait([
@@ -121,8 +117,9 @@ async def softmux_vid(vid_filename, sub_filename, msg):
     ])
 
     if process.returncode == 0:
-        await msg.edit('✅ Muxing Completed Successfully!\n\n⏱️ Time taken: {}s'.format(round(time.time() - start)))
-        await send_screenshots(msg._client, msg.chat.id, out_location)
+        await msg.edit(f'✅ Muxing Completed Successfully!\n\n⏱️ Time taken: {round(time.time() - start)}s')
+        screenshots = await generate_screenshots(out_location)
+        await send_screenshots(msg, screenshots)
         return output
     else:
         await msg.edit("❌ Muxing Failed! Please check your files or format.")
@@ -131,6 +128,7 @@ async def softmux_vid(vid_filename, sub_filename, msg):
 
 async def softremove_vid(vid_filename, sub_filename, msg):
     start = time.time()
+
     vid = os.path.join(Config.DOWNLOAD_DIR, vid_filename)
     sub = os.path.join(Config.DOWNLOAD_DIR, sub_filename)
     out_file = '.'.join(vid_filename.split('.')[:-1])
@@ -155,7 +153,7 @@ async def softremove_vid(vid_filename, sub_filename, msg):
     process = await asyncio.create_subprocess_exec(
         *command,
         stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE
     )
 
     await asyncio.wait([
@@ -164,8 +162,9 @@ async def softremove_vid(vid_filename, sub_filename, msg):
     ])
 
     if process.returncode == 0:
-        await msg.edit('✅ Muxing Completed Successfully!\n\n⏱️ Time taken: {}s'.format(round(time.time() - start)))
-        await send_screenshots(msg._client, msg.chat.id, out_location)
+        await msg.edit(f'✅ Muxing Completed Successfully!\n\n⏱️ Time taken: {round(time.time() - start)}s')
+        screenshots = await generate_screenshots(out_location)
+        await send_screenshots(msg, screenshots)
         return output
     else:
         await msg.edit("❌ Muxing Failed! Please check your files or format.")
@@ -174,13 +173,14 @@ async def softremove_vid(vid_filename, sub_filename, msg):
 
 async def hardmux_vid(vid_filename, sub_filename, msg):
     start = time.time()
+
     vid = os.path.join(Config.DOWNLOAD_DIR, vid_filename)
     sub = os.path.join(Config.DOWNLOAD_DIR, sub_filename)
     out_file = '.'.join(vid_filename.split('.')[:-1])
     output = out_file + '_muxed.mp4'
     out_location = os.path.join(Config.DOWNLOAD_DIR, output)
 
-    # Font check
+    # Check font exists
     font_path = os.path.join(os.getcwd(), "fonts", "HelveticaRounded-Bold.ttf")
     if not os.path.exists(font_path):
         await safe_edit_message(msg, "❌ Font not found! Place 'HelveticaRounded-Bold.ttf' in 'fonts' folder.")
@@ -213,8 +213,9 @@ async def hardmux_vid(vid_filename, sub_filename, msg):
     ])
 
     if process.returncode == 0:
-        await msg.edit('✅ Muxing Completed Successfully!\n\n⏱️ Time taken: {}s'.format(round(time.time() - start)))
-        await send_screenshots(msg._client, msg.chat.id, out_location)
+        await msg.edit(f'✅ Muxing Completed Successfully!\n\n⏱️ Time taken: {round(time.time() - start)}s')
+        screenshots = await generate_screenshots(out_location)
+        await send_screenshots(msg, screenshots)
         return output
     else:
         await msg.edit("❌ Muxing Failed! Please check your files or format.")
