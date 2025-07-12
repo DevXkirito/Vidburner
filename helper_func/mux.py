@@ -34,7 +34,7 @@ async def read_stderr(start, msg, process):
         progress = parse_progress(line)
         if progress:
             now = time.time()
-            if now - last_edit_time >= 5:
+            if now - last_edit_time >= 15:
                 text = '📊 Muxing Progress\n'
                 text += f"📦 Size: {progress['size']}\n"
                 text += f"⏱️ Time: {progress['time']}\n"
