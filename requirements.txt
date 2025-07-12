@@ -1,7 +1,7 @@
 # Core Telegram & Async Dependencies
 pyrogram==2.0.106
 tgcrypto-pyrofork==1.2.5
-aiofiles @ git+https://github.com/Tinche/aiofiles.git@master
+aiofiles @ git+https://github.com/Tinche/aiofiles.git@main
 asyncio ; python_version < "3.11"  # Built-in for Python 3.11+
 aiohttp==3.9.5
 dnspython==2.6.1
